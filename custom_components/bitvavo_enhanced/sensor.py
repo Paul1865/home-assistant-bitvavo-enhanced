@@ -13,7 +13,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     entities = [
         BitvavoAssetSensor(coordinator, asset)
-        for asset in coordinator.data[CONF_BALANCES]
+        for asset in coordinator.data.get(CONF_BALANCES, {})
     ]
 
     async_add_entities(entities)
@@ -30,19 +30,20 @@ class BitvavoAssetSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def state(self):
-        data = self.coordinator.data[CONF_BALANCES][self._asset]
-        return round(data["total"], 8)
+        data = self.coordinator.data[CONF_BALANCES].get(self._asset, {})
+        return round(data.get("total", 0), 8)
 
     @property
     def extra_state_attributes(self):
-        data = self.coordinator.data[CONF_BALANCES][self._asset]
+        data = self.coordinator.data[CONF_BALANCES].get(self._asset, {})
 
         return {
-            "available": data["available"],
-            "in_order": data["inOrder"],
-            "staked": data["staked"],
-            "lent": data["lent"],
-            "orders": data["orders"],
-            "total": data["total"],
+            "available": data.get("available", 0),
+            "in_order": data.get("inOrder", 0),
+            "staked": data.get("staked", 0),
+            "lent": data.get("lent", 0),
+            "orders": data.get("orders", []),
+            "orders_count": len(data.get("orders", [])),
+            "total": data.get("total", 0),
             "attribution": ATTRIBUTION,
         }

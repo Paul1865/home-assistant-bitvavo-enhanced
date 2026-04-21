@@ -1,8 +1,8 @@
-import asyncio
 import logging
 from datetime import timedelta
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
 from bitvavo.BitvavoClient import BitvavoClient
 
 from .const import CONF_BALANCES, CONF_TICKERS, CONF_ORDERS
@@ -32,47 +32,55 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         # 1. BALANCES + STAKING
         # ---------------------------------
         for b in balances_raw:
-            symbol = b["symbol"]
+            symbol = b.get("symbol")
 
-            available = float(b.get("available", 0))
-            in_order = float(b.get("inOrder", 0))
-            staked = float(b.get("staked", 0))
-            lent = float(b.get("lent", 0))
+            available = float(b.get("available", 0) or 0)
+            in_order = float(b.get("inOrder", 0) or 0)
+            staked = float(b.get("staked", 0) or 0)
+            lent = float(b.get("lent", 0) or 0)
 
             portfolio[symbol] = {
                 "available": available,
                 "inOrder": in_order,
                 "staked": staked,
                 "lent": lent,
-                "orders": 0,
+                "orders": [],
                 "total": available + in_order + staked + lent,
             }
 
         # ---------------------------------
-        # 2. OPEN ORDERS (BTC FIX)
+        # 2. OPEN ORDERS (correct mapped)
         # ---------------------------------
         for o in orders_raw:
             market = o.get("market", "")
-            symbol = market.split("-")[0] if "-" in market else market
+            if "-" not in market:
+                continue
 
-            if symbol not in portfolio:
-                portfolio[symbol] = {
-                    "available": 0,
-                    "inOrder": 0,
-                    "staked": 0,
-                    "lent": 0,
-                    "orders": 0,
-                    "total": 0,
-                }
+            base, quote = market.split("-")
 
-            portfolio[symbol]["orders"] += 1
+            portfolio.setdefault(base, {
+                "available": 0,
+                "inOrder": 0,
+                "staked": 0,
+                "lent": 0,
+                "orders": [],
+                "total": 0,
+            })
+
+            portfolio[base]["orders"].append({
+                "market": market,
+                "side": o.get("side"),
+                "amount": o.get("amount"),
+                "price": o.get("price"),
+                "status": o.get("status"),
+            })
 
         # ---------------------------------
-        # 3. FILTER CLEAN VIEW
+        # 3. CLEAN OUTPUT
         # ---------------------------------
         display_portfolio = {
             k: v for k, v in portfolio.items()
-            if v["total"] > 0 or v["orders"] > 0
+            if v["total"] > 0 or len(v["orders"]) > 0
         }
 
         return {
@@ -81,6 +89,3 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             CONF_ORDERS: orders_raw,
             "raw_portfolio": portfolio,
         }
-
-    async def async_config_entry_first_refresh(self):
-        await super().async_config_entry_first_refresh()
