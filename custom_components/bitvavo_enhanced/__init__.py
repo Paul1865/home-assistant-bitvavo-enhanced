@@ -1,22 +1,23 @@
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-
-from .const import DOMAIN, CONF_API_KEY, CONF_API_SECRET
+from .const import DOMAIN
 from .coordinator import BitvavoCoordinator
 
-PLATFORMS = ["sensor"]
 
+async def async_setup_entry(hass, entry):
+    coordinator = BitvavoCoordinator(
+        hass,
+        entry.data["api_key"],
+        entry.data["api_secret"],
+    )
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    api_key = entry.data[CONF_API_KEY]
-    api_secret = entry.data[CONF_API_SECRET]
-
-    coordinator = BitvavoCoordinator(hass, api_key, api_secret)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
+
+
+async def async_reload_entry(hass, entry):
+    await hass.config_entries.async_reload(entry.entry_id)

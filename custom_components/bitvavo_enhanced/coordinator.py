@@ -5,8 +5,7 @@ from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from bitvavo.BitvavoClient import BitvavoClient
 
-from .const import CONF_BALANCES, CONF_TICKERS
-from .websocket import BitvavoWebsocket
+from .const import CONF_BALANCES, CONF_TICKERS, CONF_ORDERS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,24 +15,22 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         super().__init__(
             hass,
             _LOGGER,
-            name="bitvavo",
+            name="bitvavo_enhanced",
             update_interval=timedelta(seconds=60),
         )
 
         self.client = BitvavoClient(api_key, api_secret)
-        self.ws = BitvavoWebsocket(self)
 
     async def _async_update_data(self):
         balances_raw = await self.client.get_balance()
         tickers_raw = await self.client.get_price_ticker()
+        orders_raw = await self.client.get_open_orders()
 
-        balances_map = {b["symbol"]: b for b in balances_raw}
+        portfolio = {}
 
-        # -------------------------------------------------
-        # FULL BALANCE STRUCTURE (incl staking/lending)
-        # -------------------------------------------------
-        full_balances = {}
-
+        # ---------------------------------
+        # 1. BALANCES + STAKING
+        # ---------------------------------
         for b in balances_raw:
             symbol = b["symbol"]
 
@@ -42,38 +39,48 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             staked = float(b.get("staked", 0))
             lent = float(b.get("lent", 0))
 
-            total = available + in_order + staked + lent
-
-            full_balances[symbol] = {
+            portfolio[symbol] = {
                 "available": available,
                 "inOrder": in_order,
                 "staked": staked,
                 "lent": lent,
-                "total": total,
+                "orders": 0,
+                "total": available + in_order + staked + lent,
             }
 
-        # -------------------------------------------------
-        # FILTERED VIEW (NO ZERO ASSETS IN UI)
-        # -------------------------------------------------
-        display_balances = {
-            symbol: data
-            for symbol, data in full_balances.items()
-            if data["total"] > 0
+        # ---------------------------------
+        # 2. OPEN ORDERS (BTC FIX)
+        # ---------------------------------
+        for o in orders_raw:
+            market = o.get("market", "")
+            symbol = market.split("-")[0] if "-" in market else market
+
+            if symbol not in portfolio:
+                portfolio[symbol] = {
+                    "available": 0,
+                    "inOrder": 0,
+                    "staked": 0,
+                    "lent": 0,
+                    "orders": 0,
+                    "total": 0,
+                }
+
+            portfolio[symbol]["orders"] += 1
+
+        # ---------------------------------
+        # 3. FILTER CLEAN VIEW
+        # ---------------------------------
+        display_portfolio = {
+            k: v for k, v in portfolio.items()
+            if v["total"] > 0 or v["orders"] > 0
         }
 
-        # -------------------------------------------------
-        # RETURN DATASET
-        # -------------------------------------------------
         return {
-            CONF_BALANCES: display_balances,
+            CONF_BALANCES: display_portfolio,
             CONF_TICKERS: {t["market"]: t for t in tickers_raw},
-
-            # RAW DATA (handig voor debug / future features)
-            "raw_balances": full_balances,
+            CONF_ORDERS: orders_raw,
+            "raw_portfolio": portfolio,
         }
 
     async def async_config_entry_first_refresh(self):
         await super().async_config_entry_first_refresh()
-
-        # start websocket (realtime prices)
-        asyncio.create_task(self.ws.connect())
