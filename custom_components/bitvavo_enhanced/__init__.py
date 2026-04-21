@@ -1,6 +1,8 @@
 from .const import DOMAIN
 from .coordinator import BitvavoCoordinator
 
+PLATFORMS = ["sensor"]
+
 
 async def async_setup_entry(hass, entry):
     coordinator = BitvavoCoordinator(
@@ -13,6 +15,8 @@ async def async_setup_entry(hass, entry):
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
