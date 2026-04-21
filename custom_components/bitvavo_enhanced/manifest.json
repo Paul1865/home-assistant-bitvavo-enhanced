@@ -9,6 +9,6 @@
     "python-bitvavo-api==1.4.2",
     "websockets>=10.0"
   ],
-  "codeowners": ["@YPaul1865"],
+  "codeowners": ["@Paul1865"],
   "iot_class": "cloud_polling"
 }
