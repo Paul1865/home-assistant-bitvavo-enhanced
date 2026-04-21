@@ -1,0 +1,14 @@
+{
+  "domain": "bitvavo_enhanced",
+  "name": "Bitvavo Enhanced",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/Paul1865/home-assistant-bitvavo-enhanced",
+  "issue_tracker": "https://github.com/Paul1865/home-assistant-bitvavo-enhanced/issues",
+  "requirements": [
+    "python-bitvavo-api==1.4.2",
+    "websockets>=10.0"
+  ],
+  "codeowners": ["@YPaul1865"],
+  "iot_class": "cloud_polling"
+}
