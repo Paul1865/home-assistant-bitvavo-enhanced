@@ -53,7 +53,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         balances_raw = await self.client.get_balance()
         tickers_raw = await self.client.get_price_ticker()
         orders_raw = await self.client.get_open_orders()
-        staking_raw = await self.client.get_staking()  # FIXED STAKING
+        staking_raw = await self.client.staking()
 
         # Maak tickers dictionary: {"BTC-EUR": {...}, ...}
         tickers_map = {t["market"]: t for t in tickers_raw}
