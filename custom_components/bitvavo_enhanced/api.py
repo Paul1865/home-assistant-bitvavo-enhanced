@@ -37,33 +37,38 @@ class BitvavoAPI:
             query = "?" + urlencode(params)
             url += query
 
-        # Body
-        data = ""
-        json_body = None
+        # Body (string!)
         if body:
-            data = json.dumps(body, separators=(",", ":"))
-            json_body = body
+            body_str = json.dumps(body, separators=(",", ":"))
+        else:
+            body_str = ""
 
         # Headers
         headers = {}
         if private:
             ts = str(int(time.time() * 1000))
-            signature = self._sign(ts, method, path, query, data)
+            signature = self._sign(ts, method, path, query, body_str)
+
             headers = {
                 "Bitvavo-Access-Key": self._api_key,
                 "Bitvavo-Access-Signature": signature,
                 "Bitvavo-Access-Timestamp": ts,
                 "Bitvavo-Access-Window": "60000",
-                "Content-Type": "application/json",
             }
 
-        async with self._session.request(method, url, headers=headers, json=json_body) as resp:
+            if body:
+                headers["Content-Type"] = "application/json"
+
+        # IMPORTANT:
+        # We use data=body_str, NOT json=...
+        async with self._session.request(method, url, headers=headers, data=body_str) as resp:
+            text = await resp.text()
+
             if resp.status == 403:
-                text = await resp.text()
                 raise Exception(f"403 Forbidden — auth mismatch: {text}")
 
             resp.raise_for_status()
-            return await resp.json()
+            return json.loads(text)
 
     async def get_balance(self):
         return await self._request("GET", "/balance", private=True)
