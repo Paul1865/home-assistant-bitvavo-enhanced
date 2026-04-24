@@ -50,10 +50,13 @@ class BitvavoCoordinator(DataUpdateCoordinator):
     # MAIN UPDATE LOOP
     # ---------------------------------------------------------
     async def _async_update_data(self):
+        # Standaard Bitvavo calls
         balances_raw = await self.client.get_balance()
         tickers_raw = await self.client.get_price_ticker()
         orders_raw = await self.client.get_open_orders()
-        staking_raw = await self.client.staking()
+
+        # FIXED STAKING ophalen via interne request()
+        staking_raw = await self.client._request('GET', '/stakingBalance')
 
         # Maak tickers dictionary: {"BTC-EUR": {...}, ...}
         tickers_map = {t["market"]: t for t in tickers_raw}
@@ -68,13 +71,13 @@ class BitvavoCoordinator(DataUpdateCoordinator):
 
             available = float(b.get("available", 0) or 0)
             in_order = float(b.get("inOrder", 0) or 0)
-            staked = float(b.get("staked", 0) or 0)  # FLEXIBLE
+            staked_flexible = float(b.get("staked", 0) or 0)
             lent = float(b.get("lent", 0) or 0)
 
             portfolio[symbol] = {
                 "available": available,
                 "inOrder": in_order,
-                "staked_flexible": staked,
+                "staked_flexible": staked_flexible,
                 "staked_fixed": 0.0,  # vullen we zo
                 "lent": lent,
                 "orders": [],
