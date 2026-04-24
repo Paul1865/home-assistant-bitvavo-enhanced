@@ -25,6 +25,10 @@ class BitvavoCoordinator(DataUpdateCoordinator):
     # EUR PRICE LOOKUP
     # ---------------------------------------------------------
     def _get_eur_price(self, symbol, tickers):
+        # EUR heeft altijd prijs 1
+        if symbol == "EUR":
+            return 1.0
+
         # 1. Direct EUR pair
         direct = f"{symbol}-EUR"
         if direct in tickers:
@@ -49,6 +53,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         balances_raw = await self.client.get_balance()
         tickers_raw = await self.client.get_price_ticker()
         orders_raw = await self.client.get_open_orders()
+        staking_raw = await self.client.get_staking()  # FIXED STAKING
 
         # Maak tickers dictionary: {"BTC-EUR": {...}, ...}
         tickers_map = {t["market"]: t for t in tickers_raw}
@@ -56,38 +61,68 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         portfolio = {}
 
         # ---------------------------------
-        # 1. BALANCES + STAKING
+        # 1. BALANCES + FLEXIBLE STAKING
         # ---------------------------------
         for b in balances_raw:
             symbol = b.get("symbol")
 
             available = float(b.get("available", 0) or 0)
             in_order = float(b.get("inOrder", 0) or 0)
-            staked = float(b.get("staked", 0) or 0)
+            staked = float(b.get("staked", 0) or 0)  # FLEXIBLE
             lent = float(b.get("lent", 0) or 0)
-
-            total = available + in_order + staked + lent
 
             portfolio[symbol] = {
                 "available": available,
                 "inOrder": in_order,
-                "staked": staked,
+                "staked_flexible": staked,
+                "staked_fixed": 0.0,  # vullen we zo
                 "lent": lent,
                 "orders": [],
-                "total": total,
             }
 
-            # EUR prijs + waarde
-            eur_price = self._get_eur_price(symbol, tickers_map)
-            if eur_price:
-                portfolio[symbol]["eur_price"] = eur_price
-                portfolio[symbol]["eur_value"] = eur_price * total
-            else:
-                portfolio[symbol]["eur_price"] = None
-                portfolio[symbol]["eur_value"] = None
+        # ---------------------------------
+        # 2. FIXED STAKING TOEVOEGEN
+        # ---------------------------------
+        for s in staking_raw:
+            symbol = s.get("symbol")
+            amount = float(s.get("amount", 0) or 0)
+
+            if symbol not in portfolio:
+                portfolio[symbol] = {
+                    "available": 0,
+                    "inOrder": 0,
+                    "staked_flexible": 0,
+                    "staked_fixed": 0,
+                    "lent": 0,
+                    "orders": [],
+                }
+
+            portfolio[symbol]["staked_fixed"] += amount
 
         # ---------------------------------
-        # 2. OPEN ORDERS (correct mapped)
+        # 3. TOTAL + EUR VALUE
+        # ---------------------------------
+        for symbol, data in portfolio.items():
+            total = (
+                data["available"]
+                + data["inOrder"]
+                + data["staked_flexible"]
+                + data["staked_fixed"]
+                + data["lent"]
+            )
+
+            data["total"] = total
+
+            eur_price = self._get_eur_price(symbol, tickers_map)
+            if eur_price:
+                data["eur_price"] = eur_price
+                data["eur_value"] = eur_price * total
+            else:
+                data["eur_price"] = None
+                data["eur_value"] = None
+
+        # ---------------------------------
+        # 4. OPEN ORDERS
         # ---------------------------------
         for o in orders_raw:
             market = o.get("market", "")
@@ -96,35 +131,23 @@ class BitvavoCoordinator(DataUpdateCoordinator):
 
             base, quote = market.split("-")
 
-            portfolio.setdefault(base, {
-                "available": 0,
-                "inOrder": 0,
-                "staked": 0,
-                "lent": 0,
-                "orders": [],
-                "total": 0,
-                "eur_price": None,
-                "eur_value": None,
-            })
+            if base not in portfolio:
+                portfolio[base] = {
+                    "available": 0,
+                    "inOrder": 0,
+                    "staked_flexible": 0,
+                    "staked_fixed": 0,
+                    "lent": 0,
+                    "orders": [],
+                    "total": 0,
+                    "eur_price": None,
+                    "eur_value": None,
+                }
 
-            portfolio[base]["orders"].append({
-                "market": market,
-                "side": o.get("side"),
-                "amount": o.get("amount"),
-                "price": o.get("price"),
-                "status": o.get("status"),
-            })
-
-        # ---------------------------------
-        # 3. CLEAN OUTPUT
-        # ---------------------------------
-        display_portfolio = {
-            k: v for k, v in portfolio.items()
-            if v["total"] > 0 or len(v["orders"]) > 0
-        }
+            portfolio[base]["orders"].append(o)
 
         return {
-            CONF_BALANCES: display_portfolio,
+            CONF_BALANCES: portfolio,
             CONF_TICKERS: tickers_map,
             CONF_ORDERS: orders_raw,
             "raw_portfolio": portfolio,

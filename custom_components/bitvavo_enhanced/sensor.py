@@ -37,10 +37,15 @@ class BitvavoAssetSensor(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self):
         data = self.coordinator.data[CONF_BALANCES].get(self._asset, {})
 
+        staked_flexible = data.get("staked_flexible", 0)
+        staked_fixed = data.get("staked_fixed", 0)
+
         return {
             "available": data.get("available", 0),
             "in_order": data.get("inOrder", 0),
-            "staked": data.get("staked", 0),
+            "staked_flexible": staked_flexible,
+            "staked_fixed": staked_fixed,
+            "staked_total": staked_flexible + staked_fixed,
             "lent": data.get("lent", 0),
             "orders": data.get("orders", []),
             "orders_count": len(data.get("orders", [])),
