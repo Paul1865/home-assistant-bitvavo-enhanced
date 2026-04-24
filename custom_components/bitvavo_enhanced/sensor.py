@@ -45,5 +45,7 @@ class BitvavoAssetSensor(CoordinatorEntity, SensorEntity):
             "orders": data.get("orders", []),
             "orders_count": len(data.get("orders", [])),
             "total": data.get("total", 0),
+            "eur_price": data.get("eur_price"),
+            "eur_value": data.get("eur_value"),
             "attribution": ATTRIBUTION,
         }
