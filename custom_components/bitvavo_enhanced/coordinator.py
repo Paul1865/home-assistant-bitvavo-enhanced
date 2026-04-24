@@ -25,33 +25,24 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         self.api = api
         self.debug = debug
 
-    # ---------------------------------------------------------
-    # EUR PRICE LOOKUP
-    # ---------------------------------------------------------
     def _get_eur_price(self, symbol, tickers):
         if symbol == "EUR":
             return 1.0
 
-        # Direct EUR pair
         direct = f"{symbol}-EUR"
         if direct in tickers:
             return float(tickers[direct]["price"])
 
-        # USDT fallback
         usdt_pair = f"{symbol}-USDT"
         if usdt_pair in tickers and "USDT-EUR" in tickers:
             return float(tickers[usdt_pair]["price"]) * float(tickers["USDT-EUR"]["price"])
 
-        # BTC fallback
         btc_pair = f"{symbol}-BTC"
         if btc_pair in tickers and "BTC-EUR" in tickers:
             return float(tickers[btc_pair]["price"]) * float(tickers["BTC-EUR"]["price"])
 
         return None
 
-    # ---------------------------------------------------------
-    # MAIN UPDATE LOOP
-    # ---------------------------------------------------------
     async def _async_update_data(self):
         balances_raw, staking_raw, tickers_raw, orders_raw = await self._fetch_all()
 
@@ -61,14 +52,11 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Bitvavo Enhanced Debug: tickers=%s", tickers_raw)
             _LOGGER.warning("Bitvavo Enhanced Debug: orders=%s", orders_raw)
 
-        # Tickers map
         tickers_map = {t["market"]: t for t in tickers_raw}
 
         portfolio: dict[str, dict] = {}
 
-        # ---------------------------------
-        # 1. BALANCES + FLEXIBLE STAKING
-        # ---------------------------------
+        # 1. Balances + flexible staking
         for b in balances_raw:
             symbol = b.get("symbol")
 
@@ -86,9 +74,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 "orders": [],
             }
 
-        # ---------------------------------
-        # 2. FIXED STAKING (stakingBalance)
-        # ---------------------------------
+        # 2. Fixed staking
         for s in staking_raw:
             symbol = s.get("symbol")
             amount = float(s.get("amount", 0) or 0)
@@ -105,9 +91,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
 
             portfolio[symbol]["staked_fixed"] += amount
 
-        # ---------------------------------
-        # 3. TOTAL + EUR VALUE
-        # ---------------------------------
+        # 3. Total + EUR value
         for symbol, data in portfolio.items():
             total = (
                 data["available"]
@@ -126,9 +110,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 data["eur_price"] = None
                 data["eur_value"] = None
 
-        # ---------------------------------
-        # 4. OPEN ORDERS
-        # ---------------------------------
+        # 4. Open orders
         for o in orders_raw:
             market = o.get("market", "")
             if "-" not in market:
@@ -158,9 +140,6 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             "raw_portfolio": portfolio,
         }
 
-    # ---------------------------------------------------------
-    # FETCH ALL ENDPOINTS
-    # ---------------------------------------------------------
     async def _fetch_all(self):
         balances = await self.api.get_balance()
         staking = await self.api.get_staking_balance()

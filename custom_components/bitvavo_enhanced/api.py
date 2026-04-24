@@ -17,7 +17,7 @@ class BitvavoAPI:
         self._session = session
 
     def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
-        # EXACT zoals Bitvavo het wil:
+        # EXACT volgens Bitvavo docs:
         # timestamp + method + /v2 + endpoint + body
         prehash = f"{timestamp}{method}/v2{path}{body}"
         return hmac.new(self._api_secret, prehash.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -77,4 +77,5 @@ class BitvavoAPI:
         return await self._request("GET", "/ticker/price")
 
     async def get_open_orders(self):
-        return await self._request("GET", "/orders", private=True)
+        # FIX: /ordersOpen i.p.v. /orders
+        return await self._request("GET", "/ordersOpen", private=True)
