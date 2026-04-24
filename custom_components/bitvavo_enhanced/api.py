@@ -29,19 +29,22 @@ class BitvavoAPI:
         private: bool = False,
     ) -> Any:
         url = BASE_URL + path
+
+        # Querystring
         query = ""
         if params:
-            # Bitvavo verwacht querystring in signing
             from urllib.parse import urlencode
             query = "?" + urlencode(params)
             url += query
 
+        # Body
         data = ""
         json_body = None
         if body:
             data = json.dumps(body, separators=(",", ":"))
             json_body = body
 
+        # Headers
         headers = {}
         if private:
             ts = str(int(time.time() * 1000))
@@ -55,6 +58,10 @@ class BitvavoAPI:
             }
 
         async with self._session.request(method, url, headers=headers, json=json_body) as resp:
+            if resp.status == 403:
+                text = await resp.text()
+                raise Exception(f"403 Forbidden — auth mismatch: {text}")
+
             resp.raise_for_status()
             return await resp.json()
 
