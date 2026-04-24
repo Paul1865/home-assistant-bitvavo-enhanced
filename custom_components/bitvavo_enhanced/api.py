@@ -16,8 +16,10 @@ class BitvavoAPI:
         self._api_secret = api_secret.encode("utf-8")
         self._session = session
 
-    def _sign(self, timestamp: str, method: str, path: str, query: str, body: str) -> str:
-        prehash = f"{timestamp}{method}{path}{query}{body}"
+    def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
+        # EXACT zoals Bitvavo het wil:
+        # timestamp + method + /v2 + endpoint + body
+        prehash = f"{timestamp}{method}/v2{path}{body}"
         return hmac.new(self._api_secret, prehash.encode("utf-8"), hashlib.sha256).hexdigest()
 
     async def _request(
@@ -30,24 +32,21 @@ class BitvavoAPI:
     ) -> Any:
         url = BASE_URL + path
 
-        # Querystring
-        query = ""
+        # Querystring (NIET in signature!)
         if params:
             from urllib.parse import urlencode
-            query = "?" + urlencode(params)
-            url += query
+            url += "?" + urlencode(params)
 
-        # Body (string!)
+        # Body (string)
         if body:
             body_str = json.dumps(body, separators=(",", ":"))
         else:
             body_str = ""
 
-        # Headers
         headers = {}
         if private:
             ts = str(int(time.time() * 1000))
-            signature = self._sign(ts, method, path, query, body_str)
+            signature = self._sign(ts, method, path, body_str)
 
             headers = {
                 "Bitvavo-Access-Key": self._api_key,
@@ -59,8 +58,6 @@ class BitvavoAPI:
             if body:
                 headers["Content-Type"] = "application/json"
 
-        # IMPORTANT:
-        # We use data=body_str, NOT json=...
         async with self._session.request(method, url, headers=headers, data=body_str) as resp:
             text = await resp.text()
 
