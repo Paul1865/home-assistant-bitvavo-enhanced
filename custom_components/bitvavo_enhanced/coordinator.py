@@ -3,43 +3,46 @@ from datetime import timedelta
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from bitvavo.BitvavoClient import BitvavoClient
-
-from .const import CONF_BALANCES, CONF_TICKERS, CONF_ORDERS
+from .const import (
+    DOMAIN,
+    CONF_BALANCES,
+    CONF_TICKERS,
+    CONF_ORDERS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class BitvavoCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, api_key, api_secret):
+    def __init__(self, hass, api, poll_interval=60, debug=False):
         super().__init__(
             hass,
             _LOGGER,
-            name="bitvavo_enhanced",
-            update_interval=timedelta(seconds=60),
+            name=DOMAIN,
+            update_interval=timedelta(seconds=poll_interval),
         )
 
-        self.client = BitvavoClient(api_key, api_secret)
+        self.api = api
+        self.debug = debug
 
     # ---------------------------------------------------------
     # EUR PRICE LOOKUP
     # ---------------------------------------------------------
     def _get_eur_price(self, symbol, tickers):
-        # EUR heeft altijd prijs 1
         if symbol == "EUR":
             return 1.0
 
-        # 1. Direct EUR pair
+        # Direct EUR pair
         direct = f"{symbol}-EUR"
         if direct in tickers:
             return float(tickers[direct]["price"])
 
-        # 2. USDT fallback
+        # USDT fallback
         usdt_pair = f"{symbol}-USDT"
         if usdt_pair in tickers and "USDT-EUR" in tickers:
             return float(tickers[usdt_pair]["price"]) * float(tickers["USDT-EUR"]["price"])
 
-        # 3. BTC fallback
+        # BTC fallback
         btc_pair = f"{symbol}-BTC"
         if btc_pair in tickers and "BTC-EUR" in tickers:
             return float(tickers[btc_pair]["price"]) * float(tickers["BTC-EUR"]["price"])
@@ -50,18 +53,18 @@ class BitvavoCoordinator(DataUpdateCoordinator):
     # MAIN UPDATE LOOP
     # ---------------------------------------------------------
     async def _async_update_data(self):
-        # Standaard Bitvavo calls
-        balances_raw = await self.client.get_balance()
-        tickers_raw = await self.client.get_price_ticker()
-        orders_raw = await self.client.get_open_orders()
+        balances_raw, staking_raw, tickers_raw, orders_raw = await self._fetch_all()
 
-        # FIXED STAKING ophalen via interne request()
-        staking_raw = await self.client._request('GET', '/stakingBalance')
+        if self.debug:
+            _LOGGER.warning("Bitvavo Enhanced Debug: balances=%s", balances_raw)
+            _LOGGER.warning("Bitvavo Enhanced Debug: staking=%s", staking_raw)
+            _LOGGER.warning("Bitvavo Enhanced Debug: tickers=%s", tickers_raw)
+            _LOGGER.warning("Bitvavo Enhanced Debug: orders=%s", orders_raw)
 
-        # Maak tickers dictionary: {"BTC-EUR": {...}, ...}
+        # Tickers map
         tickers_map = {t["market"]: t for t in tickers_raw}
 
-        portfolio = {}
+        portfolio: dict[str, dict] = {}
 
         # ---------------------------------
         # 1. BALANCES + FLEXIBLE STAKING
@@ -78,13 +81,13 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 "available": available,
                 "inOrder": in_order,
                 "staked_flexible": staked_flexible,
-                "staked_fixed": 0.0,  # vullen we zo
+                "staked_fixed": 0.0,
                 "lent": lent,
                 "orders": [],
             }
 
         # ---------------------------------
-        # 2. FIXED STAKING TOEVOEGEN
+        # 2. FIXED STAKING (stakingBalance)
         # ---------------------------------
         for s in staking_raw:
             symbol = s.get("symbol")
@@ -94,9 +97,9 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 portfolio[symbol] = {
                     "available": 0,
                     "inOrder": 0,
-                    "staked_flexible": 0,
-                    "staked_fixed": 0,
-                    "lent": 0,
+                    "staked_flexible": 0.0,
+                    "staked_fixed": 0.0,
+                    "lent": 0.0,
                     "orders": [],
                 }
 
@@ -113,11 +116,10 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 + data["staked_fixed"]
                 + data["lent"]
             )
-
             data["total"] = total
 
             eur_price = self._get_eur_price(symbol, tickers_map)
-            if eur_price:
+            if eur_price is not None:
                 data["eur_price"] = eur_price
                 data["eur_value"] = eur_price * total
             else:
@@ -132,17 +134,17 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             if "-" not in market:
                 continue
 
-            base, quote = market.split("-")
+            base, _ = market.split("-")
 
             if base not in portfolio:
                 portfolio[base] = {
                     "available": 0,
                     "inOrder": 0,
-                    "staked_flexible": 0,
-                    "staked_fixed": 0,
-                    "lent": 0,
+                    "staked_flexible": 0.0,
+                    "staked_fixed": 0.0,
+                    "lent": 0.0,
                     "orders": [],
-                    "total": 0,
+                    "total": 0.0,
                     "eur_price": None,
                     "eur_value": None,
                 }
@@ -155,3 +157,13 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             CONF_ORDERS: orders_raw,
             "raw_portfolio": portfolio,
         }
+
+    # ---------------------------------------------------------
+    # FETCH ALL ENDPOINTS
+    # ---------------------------------------------------------
+    async def _fetch_all(self):
+        balances = await self.api.get_balance()
+        staking = await self.api.get_staking_balance()
+        tickers = await self.api.get_tickers()
+        orders = await self.api.get_open_orders()
+        return balances, staking, tickers, orders
