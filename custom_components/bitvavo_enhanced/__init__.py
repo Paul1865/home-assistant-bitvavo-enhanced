@@ -48,9 +48,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "session": session,
     }
 
+    
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+
+    # Reload integratie bij opties-wijziging
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-    hass.config_entries.async_setup_platforms(entry, ["sensor"])
     return True
 
 
@@ -61,7 +64,9 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     data = hass.data[DOMAIN].pop(entry.entry_id, None)
+
     if data and "session" in data:
         await data["session"].close()
 
+    
     return await hass.config_entries.async_unload_platforms(entry, ["sensor"])
