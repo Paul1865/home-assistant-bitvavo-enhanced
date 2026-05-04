@@ -2,5 +2,7 @@
   "name": "Bitvavo Enhanced",
   "content_in_root": false,
   "country": ["NL"],
-  "domains": ["bitvavo_enhanced"]
+  "domains": ["bitvavo_enhanced"],
+  "homeassistant": "2024.0.0",
+  "render_readme": true
 }

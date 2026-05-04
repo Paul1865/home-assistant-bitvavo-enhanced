@@ -1,81 +1,145 @@
+import aiohttp
+import asyncio
 import time
 import hmac
 import hashlib
+import logging
 import json
-from typing import Any, Dict, Optional
 
-import aiohttp
-
-
-BASE_URL = "https://api.bitvavo.com/v2"
+_LOGGER = logging.getLogger(__name__)
 
 
 class BitvavoAPI:
-    def __init__(self, api_key: str, api_secret: str, session: aiohttp.ClientSession):
-        self._api_key = api_key
-        self._api_secret = api_secret.encode("utf-8")
-        self._session = session
+    BASE_URL = "https://api.bitvavo.com"
 
-    def _sign(self, timestamp: str, method: str, path: str, body: str) -> str:
-        # EXACT volgens Bitvavo docs:
-        # timestamp + method + /v2 + endpoint + body
-        prehash = f"{timestamp}{method}/v2{path}{body}"
-        return hmac.new(self._api_secret, prehash.encode("utf-8"), hashlib.sha256).hexdigest()
+    def __init__(self, api_key: str, api_secret: str) -> None:
+        self.api_key = api_key
+        self.api_secret = api_secret.encode()
+        self.session = aiohttp.ClientSession()
 
-    async def _request(
-        self,
-        method: str,
-        path: str,
-        params: Optional[Dict[str, Any]] = None,
-        body: Optional[Dict[str, Any]] = None,
-        private: bool = False,
-    ) -> Any:
-        url = BASE_URL + path
+        # Rate limiting
+        self._lock = asyncio.Lock()
+        self._last_call = 0.0
+        self._min_interval = 0.2  # seconds
 
-        # Querystring (NIET in signature!)
+        # Cache
+        self._cache: dict[str, dict] = {}
+
+    async def _request(self, method: str, endpoint: str, params=None, body=None):
+        """
+        Low-level signed Bitvavo request.
+        endpoint moet beginnen met /v2/...
+        """
+
+        # Querystring
+        query = ""
         if params:
             from urllib.parse import urlencode
-            url += "?" + urlencode(params)
+            query = "?" + urlencode(params)
 
-        # Body (string)
+        # Body
+        body_str = ""
         if body:
             body_str = json.dumps(body, separators=(",", ":"))
-        else:
-            body_str = ""
 
-        headers = {}
-        if private:
-            ts = str(int(time.time() * 1000))
-            signature = self._sign(ts, method, path, body_str)
+        # Rate limit
+        async with self._lock:
+            now = time.time()
+            wait = self._min_interval - (now - self._last_call)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_call = time.time()
 
-            headers = {
-                "Bitvavo-Access-Key": self._api_key,
-                "Bitvavo-Access-Signature": signature,
-                "Bitvavo-Access-Timestamp": ts,
-                "Bitvavo-Access-Window": "60000",
-            }
+        url = f"{self.BASE_URL}{endpoint}{query}"
 
-            if body:
-                headers["Content-Type"] = "application/json"
+        timestamp = str(int(time.time() * 1000))
 
-        async with self._session.request(method, url, headers=headers, data=body_str) as resp:
-            text = await resp.text()
+        # Signing EXACT zoals Bitvavo het voorschrijft:
+        # timestamp + method + endpoint + query + body
+        message = timestamp + method + endpoint + query + body_str
 
-            if resp.status == 403:
-                raise Exception(f"403 Forbidden — auth mismatch: {text}")
+        signature = hmac.new(
+            self.api_secret,
+            message.encode(),
+            hashlib.sha256,
+        ).hexdigest()
 
-            resp.raise_for_status()
-            return json.loads(text)
+        headers = {
+            "Bitvavo-Access-Key": self.api_key,
+            "Bitvavo-Access-Signature": signature,
+            "Bitvavo-Access-Timestamp": timestamp,
+            "Bitvavo-Access-Window": "10000",
+            "Content-Type": "application/json",
+        }
 
-    async def get_balance(self):
-        return await self._request("GET", "/balance", private=True)
+        try:
+            async with self.session.request(method, url, headers=headers, data=body_str) as resp:
+                text = await resp.text()
 
-    async def get_staking_balance(self):
-        return await self._request("GET", "/stakingBalance", private=True)
+                if resp.status != 200:
+                    _LOGGER.error("API error (%s) for %s: %s", resp.status, endpoint, text)
+                    return None
+
+                try:
+                    return await resp.json()
+                except Exception:
+                    _LOGGER.error("JSON decode error for %s: %s", endpoint, text)
+                    return None
+
+        except Exception as err:
+            _LOGGER.error("Request exception for %s: %s", endpoint, err)
+            return None
+
+    def _get_cache(self, key: str, ttl: float):
+        entry = self._cache.get(key)
+        if entry and time.time() - entry["time"] < ttl:
+            return entry["data"]
+        return None
+
+    def _set_cache(self, key: str, data):
+        self._cache[key] = {"data": data, "time": time.time()}
+
+    #
+    # PUBLIC API CALLS
+    #
 
     async def get_tickers(self):
-        return await self._request("GET", "/ticker/price")
+        cache = self._get_cache("tickers", 5)
+        if cache:
+            return cache
+
+        data = await self._request("GET", "/v2/ticker/price")
+        if data:
+            self._set_cache("tickers", data)
+        return data
+
+    async def get_balance(self):
+        return await self._request("GET", "/v2/balance")
+
+    async def get_staking_balance(self):
+        # JUISTE endpoint
+        return await self._request("GET", "/v2/stakingBalance")
 
     async def get_open_orders(self):
-        # FIX: /ordersOpen i.p.v. /orders
-        return await self._request("GET", "/ordersOpen", private=True)
+        return await self._request("GET", "/v2/ordersOpen")
+
+    async def get_trades_for_market(self, market: str):
+        """
+        Bitvavo vereist altijd ?market=...
+        """
+        return await self._request("GET", "/v2/trades", params={"market": market})
+
+    async def get_all_trades(self, markets: list[str]):
+        """
+        Haalt trades op voor alle markten die je portfolio bevat.
+        """
+        all_trades = []
+        for market in markets:
+            trades = await self.get_trades_for_market(market)
+            if trades:
+                all_trades.extend(trades)
+        return all_trades
+
+    async def close(self):
+        if not self.session.closed:
+            await self.session.close()

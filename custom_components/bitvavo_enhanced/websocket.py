@@ -1,6 +1,6 @@
 import json
 import logging
-import websockets
+import websockets # type: ignore
 
 _LOGGER = logging.getLogger(__name__)
 

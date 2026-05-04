@@ -1,42 +1,72 @@
-\# Bitvavo Enhanced for Home Assistant
+# Bitvavo Enhanced for Home Assistant
 
+Advanced Bitvavo integration for Home Assistant with portfolio tracking and EUR conversion.
 
+---
 
-Advanced Home Assistant integration for Bitvavo.
+## ✨ Features
 
+- 📊 Spot balances per asset  
+- 💰 EUR value per asset  
+- 📈 Total portfolio value  
+- 🔄 Staking & lending support  
+- ⚡ WebSocket real-time pricing  
+- 🧹 Automatic filtering of dust assets  
+- 🧩 Clean device grouping in Home Assistant  
 
+---
 
-\## Features
+## 📦 Installation
 
-\- Spot balances
+### Via HACS (recommended)
 
-\- Staking + lending support
+1. Open :contentReference[oaicite:0]{index=0}  
+2. Add this repository as a custom repository  
+3. Search for **"Bitvavo Enhanced"**  
+4. Install the integration  
+5. Restart Home Assistant  
+6. Add the integration via **Settings → Devices & Services**
 
-\- WebSocket real-time pricing
+---
 
-\- Clean asset filtering (no zero assets)
+## ⚙️ Configuration
 
-\- Total portfolio value
+1. Go to **Settings → Devices & Services**
+2. Click **Add Integration**
+3. Search for **Bitvavo Enhanced**
+4. Enter your Bitvavo API credentials
 
-\- Home Assistant device grouping
+---
 
+## 🔑 Requirements
 
+- Home Assistant 2024.0 or newer  
+- Bitvavo API key & secret  
 
-\## Installation (HACS)
+---
 
-1\. Add this repo as a custom repository in HACS
+## 📸 Screenshots
 
-2\. Install "Bitvavo Enhanced"
+*(Add screenshots here — highly recommended for HACS approval)*
 
-3\. Restart Home Assistant
+---
 
-4\. Add integration via UI
+## ⚠️ Status
 
+This integration is currently in **beta**.
 
+- Features and structure may change  
+- Feedback is welcome  
 
-\## Requirements
+---
 
-\- Home Assistant 2024+
+## 🐛 Issues & Feedback
 
-\- Bitvavo API key
+Found a bug or have a feature request?  
+👉 Use the issue tracker on :contentReference[oaicite:1]{index=1}  
 
+---
+
+## 📄 License
+
+MIT License
