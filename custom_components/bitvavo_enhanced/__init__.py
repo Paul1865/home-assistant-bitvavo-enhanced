@@ -20,17 +20,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "coordinator": coordinator
     }
 
-    # 🔥 service
-    async def set_threshold(call):
-        value = call.data.get("value", 0)
-        coordinator.set_pnl_threshold(value)
-
-    hass.services.async_register(
-        DOMAIN,
-        "set_pnl_threshold",
-        set_threshold,
-    )
-
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     return True
