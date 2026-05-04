@@ -5,7 +5,7 @@ from homeassistant.const import CURRENCY_EURO
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN, CONF_BALANCES, ATTRIBUTION
+from .const import DOMAIN, CONF_BALANCES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,10 +16,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
     entities = []
     balances = coordinator.data.get(CONF_BALANCES) or {}
 
+    # Per-asset sensors
     for asset in balances:
         entities.append(BitvavoAssetSensor(coordinator, asset))
         entities.append(BitvavoEurValueSensor(coordinator, asset))
 
+    # Total portfolio sensor
     entities.append(BitvavoPortfolioTotalSensor(coordinator))
 
     async_add_entities(entities)
@@ -73,8 +75,8 @@ class BitvavoAssetSensor(CoordinatorEntity, SensorEntity):
             "total": data.get("total", 0.0),
             "eur_price": data.get("eur_price"),
             "eur_value": data.get("eur_value"),
-            "attribution": ATTRIBUTION,
 
+            # Cost basis & PnL
             "cost_basis": data.get("cost_basis"),
             "avg_buy_price": data.get("avg_buy_price"),
             "pnl": data.get("pnl"),
@@ -101,11 +103,7 @@ class BitvavoEurValueSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self):
         data = self.coordinator.data.get(CONF_BALANCES, {}).get(self._asset, {})
-        value = data.get("eur_value")
-
-        if value is None:
-            return None
-        return value
+        return data.get("eur_value")
 
 
 class BitvavoPortfolioTotalSensor(CoordinatorEntity, SensorEntity):
@@ -125,8 +123,4 @@ class BitvavoPortfolioTotalSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        total = self.coordinator.data.get("total_eur")
-
-        if total is None:
-            return None
-        return total
+        return self.coordinator.data.get("total_eur")

@@ -13,4 +13,3 @@ ATTRIBUTION = "Data provided by Bitvavo"
 
 CONF_POLL_INTERVAL = "poll_interval"
 CONF_DEBUG = "debug"
-

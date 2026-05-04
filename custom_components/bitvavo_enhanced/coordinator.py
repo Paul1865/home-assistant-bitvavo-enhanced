@@ -19,6 +19,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=poll_interval),
         )
 
+        self.hass = hass
         self.api = api
         self._data: dict = {}
         self._ws_prices: dict[str, float] = {}
@@ -27,11 +28,10 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         self._pnl_threshold = 0
         self._last_alert_state: dict = {}
 
-        # 🔥 STORAGE
-        self._storage = CostBasisStorage()
-        self._storage.load()
+        self._storage = CostBasisStorage(hass)
 
     async def async_config_entry_first_refresh(self) -> None:
+        await self._storage.async_load()
         await self._async_poll_update()
         self._ws_task = self.hass.loop.create_task(self._run_websocket())
 
@@ -45,18 +45,22 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         await self._async_poll_update()
         return self._data
 
-    async def _fetch_all_trades(self):
-        trades = await self.api.get_trades()
-        if not trades or isinstance(trades, dict):
-            return []
-        return trades
+    async def _fetch_all_trades(self, balances):
+        markets = [
+            f"{b.get('symbol')}-EUR"
+            for b in balances
+            if b.get("symbol") not in (None, "EUR")
+        ]
+
+        all_trades = await self.api.get_all_trades(markets)
+        return all_trades or []
 
     async def _fetch_all(self):
         balances = await self.api.get_balance() or []
         staking = await self.api.get_staking_balance() or []
         tickers = await self.api.get_tickers() or []
         orders = await self.api.get_open_orders() or []
-        trades = await self._fetch_all_trades() or []
+        trades = await self._fetch_all_trades(balances) or []
 
         return balances, staking, tickers, orders, trades
 
@@ -64,10 +68,10 @@ class BitvavoCoordinator(DataUpdateCoordinator):
         balances, staking, tickers, orders, trades = await self._fetch_all()
 
         tickers_map = {
-            t.get("market"): t for t in tickers if t.get("market")
+            t.get("market"): t for t in (tickers or []) if t.get("market")
         }
 
-        cost_basis = self._calculate_cost_basis(trades)
+        cost_basis = await self._calculate_cost_basis(trades)
 
         portfolio = self._build_portfolio(
             balances, staking, tickers_map, orders, cost_basis
@@ -174,7 +178,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
     ):
         portfolio: dict[str, dict] = {}
 
-        for b in balances:
+        for b in balances or []:
             symbol = b.get("symbol")
             if not symbol:
                 continue
@@ -188,7 +192,7 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 "orders": [],
             }
 
-        for s in staking:
+        for s in staking or []:
             symbol = s.get("symbol")
             if not symbol:
                 continue
@@ -226,7 +230,6 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 avg_price = cb["cost"] / cb["amount"]
                 cost_total = avg_price * total
             else:
-                # 🔥 fallback
                 cost_total = eur_value
                 avg_price = eur_value / total if total else 0.0
 
@@ -262,17 +265,16 @@ class BitvavoCoordinator(DataUpdateCoordinator):
 
         return None
 
-    def _calculate_cost_basis(self, trades):
-        result = {}
+    async def _calculate_cost_basis(self, trades):
+        result: dict[str, dict] = {}
 
-        # start met opgeslagen data
         for symbol, stored in self._storage.data.items():
             result[symbol] = {
                 "amount": stored.get("amount", 0.0),
                 "cost": stored.get("cost", 0.0),
             }
 
-        for t in trades:
+        for t in trades or []:
             market = t.get("market")
             if not market:
                 continue
@@ -301,10 +303,9 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 pos["amount"] -= amount
                 pos["cost"] -= avg_price * amount
 
-        # opslaan
         for symbol, data in result.items():
             self._storage.update(symbol, data["amount"], data["cost"])
 
-        self._storage.save()
+        await self._storage.async_save()
 
         return result

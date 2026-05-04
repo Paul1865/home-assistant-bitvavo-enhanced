@@ -1,7 +1,7 @@
 {
   "domain": "bitvavo_enhanced",
   "name": "Bitvavo Enhanced",
-  "version": "0.1.1-beta",
+  "version": "0.1.2-beta",
   "config_flow": true,
   "documentation": "https://github.com/Paul1865/home-assistant-bitvavo-enhanced",
   "issue_tracker": "https://github.com/Paul1865/home-assistant-bitvavo-enhanced/issues",

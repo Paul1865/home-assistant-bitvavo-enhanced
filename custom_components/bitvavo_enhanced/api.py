@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import logging
 import json
+from urllib.parse import urlencode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,32 +18,21 @@ class BitvavoAPI:
         self.api_secret = api_secret.encode()
         self.session = aiohttp.ClientSession()
 
-        # Rate limiting
         self._lock = asyncio.Lock()
         self._last_call = 0.0
         self._min_interval = 0.2  # seconds
 
-        # Cache
         self._cache: dict[str, dict] = {}
 
     async def _request(self, method: str, endpoint: str, params=None, body=None):
-        """
-        Low-level signed Bitvavo request.
-        endpoint moet beginnen met /v2/...
-        """
-
-        # Querystring
         query = ""
         if params:
-            from urllib.parse import urlencode
             query = "?" + urlencode(params)
 
-        # Body
         body_str = ""
         if body:
             body_str = json.dumps(body, separators=(",", ":"))
 
-        # Rate limit
         async with self._lock:
             now = time.time()
             wait = self._min_interval - (now - self._last_call)
@@ -53,9 +43,6 @@ class BitvavoAPI:
         url = f"{self.BASE_URL}{endpoint}{query}"
 
         timestamp = str(int(time.time() * 1000))
-
-        # Signing EXACT zoals Bitvavo het voorschrijft:
-        # timestamp + method + endpoint + query + body
         message = timestamp + method + endpoint + query + body_str
 
         signature = hmac.new(
@@ -99,10 +86,6 @@ class BitvavoAPI:
     def _set_cache(self, key: str, data):
         self._cache[key] = {"data": data, "time": time.time()}
 
-    #
-    # PUBLIC API CALLS
-    #
-
     async def get_tickers(self):
         cache = self._get_cache("tickers", 5)
         if cache:
@@ -117,23 +100,16 @@ class BitvavoAPI:
         return await self._request("GET", "/v2/balance")
 
     async def get_staking_balance(self):
-        # JUISTE endpoint
         return await self._request("GET", "/v2/stakingBalance")
 
     async def get_open_orders(self):
         return await self._request("GET", "/v2/ordersOpen")
 
     async def get_trades_for_market(self, market: str):
-        """
-        Bitvavo vereist altijd ?market=...
-        """
         return await self._request("GET", "/v2/trades", params={"market": market})
 
     async def get_all_trades(self, markets: list[str]):
-        """
-        Haalt trades op voor alle markten die je portfolio bevat.
-        """
-        all_trades = []
+        all_trades: list[dict] = []
         for market in markets:
             trades = await self.get_trades_for_market(market)
             if trades:
