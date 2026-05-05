@@ -119,3 +119,6 @@ class BitvavoAPI:
     async def close(self):
         if not self.session.closed:
             await self.session.close()
+
+        # 🔥 NIEUWE SESSION MAKEN
+        self.session = aiohttp.ClientSession()

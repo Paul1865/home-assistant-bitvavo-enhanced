@@ -30,6 +30,9 @@ class BitvavoCoordinator(DataUpdateCoordinator):
 
         self._storage = CostBasisStorage(hass)
 
+        # 🔥 trades throttling
+        self._last_trades_fetch = 0
+
     async def async_config_entry_first_refresh(self) -> None:
         await self._storage.async_load()
         await self._async_poll_update()
@@ -52,15 +55,21 @@ class BitvavoCoordinator(DataUpdateCoordinator):
             if b.get("symbol") not in (None, "EUR")
         ]
 
-        all_trades = await self.api.get_all_trades(markets)
-        return all_trades or []
+        return await self.api.get_all_trades(markets) or []
 
     async def _fetch_all(self):
         balances = await self.api.get_balance() or []
         staking = await self.api.get_staking_balance() or []
         tickers = await self.api.get_tickers() or []
         orders = await self.api.get_open_orders() or []
-        trades = await self._fetch_all_trades(balances) or []
+
+        # 🔥 trades max elke 10 min
+        now = asyncio.get_event_loop().time()
+        trades = []
+
+        if now - self._last_trades_fetch > 600:
+            trades = await self._fetch_all_trades(balances)
+            self._last_trades_fetch = now
 
         return balances, staking, tickers, orders, trades
 
@@ -125,19 +134,21 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 await asyncio.sleep(5)
 
     def _process_update(self, portfolio: dict):
-        total_eur = sum(v.get("eur_value") or 0.0 for v in portfolio.values())
-        total_pnl = sum(v.get("pnl") or 0.0 for v in portfolio.values())
+        try:
+            total_eur = sum(v.get("eur_value") or 0.0 for v in portfolio.values())
+            total_pnl = sum(v.get("pnl") or 0.0 for v in portfolio.values())
 
-        new_data = {
-            CONF_BALANCES: portfolio,
-            "total_eur": total_eur,
-            "total_pnl": total_pnl,
-            "total_pnl_pct": (total_pnl / total_eur * 100) if total_eur else 0.0,
-        }
+            self._data = {
+                CONF_BALANCES: portfolio,
+                "total_eur": total_eur,
+                "total_pnl": total_pnl,
+                "total_pnl_pct": (total_pnl / total_eur * 100) if total_eur else 0.0,
+            }
 
-        if new_data != self._data:
-            self._data = new_data
             self.async_set_updated_data(self._data)
+
+        except Exception as e:
+            _LOGGER.exception("Coordinator update failed: %s", e)
 
     def _recalculate_prices(self):
         portfolio = self._data.get(CONF_BALANCES, {})
@@ -268,12 +279,14 @@ class BitvavoCoordinator(DataUpdateCoordinator):
     async def _calculate_cost_basis(self, trades):
         result: dict[str, dict] = {}
 
+        # bestaande storage laden
         for symbol, stored in self._storage.data.items():
             result[symbol] = {
                 "amount": stored.get("amount", 0.0),
                 "cost": stored.get("cost", 0.0),
             }
 
+        # trades verwerken
         for t in trades or []:
             market = t.get("market")
             if not market:
@@ -303,9 +316,19 @@ class BitvavoCoordinator(DataUpdateCoordinator):
                 pos["amount"] -= amount
                 pos["cost"] -= avg_price * amount
 
-        for symbol, data in result.items():
-            self._storage.update(symbol, data["amount"], data["cost"])
+        # 🔥 alleen saven bij wijziging
+        changed = False
 
-        await self._storage.async_save()
+        for symbol, data in result.items():
+            old = self._storage.data.get(symbol, {})
+            if (
+                old.get("amount") != data["amount"]
+                or old.get("cost") != data["cost"]
+            ):
+                self._storage.update(symbol, data["amount"], data["cost"])
+                changed = True
+
+        if changed:
+            await self._storage.async_save()
 
         return result
